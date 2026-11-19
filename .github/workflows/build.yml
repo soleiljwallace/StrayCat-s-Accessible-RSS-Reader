@@ -100,6 +100,7 @@ jobs:
             --ks-pass pass:straycatrss \
             --key-pass pass:straycatrss \
             --out out/StrayCatRSS.apk aligned.apk
+          rm -f out/*.idsig
 
       - uses: actions/upload-artifact@v4
         with:
