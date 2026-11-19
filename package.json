@@ -2,6 +2,7 @@
   "name": "straycat-accessible-rss-reader",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "A screen-reader-first RSS reader for Windows and Android.",
   "license": "GPL-3.0-only",
   "scripts": {

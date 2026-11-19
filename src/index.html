@@ -19,6 +19,7 @@
     <div class="toolbar">
       <button type="button" id="btn-refresh-all">Refresh all</button>
       <button type="button" id="btn-add-feed">Add feed</button>
+      <button type="button" id="btn-catalog">Popular feeds</button>
       <button type="button" id="btn-settings">Settings</button>
     </div>
     <section id="now-playing" hidden aria-labelledby="now-playing-heading">
@@ -51,14 +52,6 @@
   <main id="view-article" class="view" hidden aria-labelledby="article-heading">
     <h1 id="article-heading" tabindex="-1"></h1>
     <p id="article-meta" class="meta"></p>
-    <div class="toolbar">
-      <button type="button" id="btn-article-back">Back to list</button>
-      <button type="button" id="btn-prev">Previous</button>
-      <button type="button" id="btn-next">Next</button>
-      <button type="button" id="btn-open">Open in browser</button>
-      <button type="button" id="btn-toggle-read">Mark unread</button>
-      <button type="button" id="btn-toggle-source">Show feed version</button>
-    </div>
     <section id="player" hidden aria-labelledby="player-heading">
       <h2 id="player-heading">Audio</h2>
       <div class="toolbar">
@@ -71,11 +64,45 @@
       <input type="range" id="pl-pos" min="0" max="0" step="1" value="0">
     </section>
     <div id="article-content" class="content"></div>
-    <div class="toolbar end-toolbar">
-      <button type="button" id="btn-next-bottom">Next article</button>
-      <button type="button" id="btn-article-back-bottom">Back to list</button>
+    <!-- The story comes first; actions follow it. -->
+    <h2 id="article-actions-heading" class="visually-hidden">Article actions</h2>
+    <div class="toolbar end-toolbar" role="group" aria-labelledby="article-actions-heading">
+      <button type="button" id="btn-next">Next article</button>
+      <button type="button" id="btn-prev">Previous article</button>
+      <button type="button" id="btn-article-back">Back to list</button>
+      <button type="button" id="btn-toggle-read">Mark unread</button>
+      <button type="button" id="btn-share">Share</button>
+      <button type="button" id="btn-open">Open in browser</button>
+      <button type="button" id="btn-toggle-source">Show feed version</button>
     </div>
   </main>
+
+  <!-- ============ POPULAR FEEDS ============ -->
+  <main id="view-catalog" class="view" hidden aria-labelledby="catalog-heading">
+    <h1 id="catalog-heading" tabindex="-1">Popular feeds</h1>
+    <div class="toolbar">
+      <button type="button" id="btn-catalog-back">Back to feeds</button>
+    </div>
+    <p>Each button adds that feed straight away, into a folder named after its category. You can rename or move it later in Feed settings.</p>
+    <p>
+      <label for="catalog-filter">Filter</label>
+      <input type="text" id="catalog-filter" autocomplete="off" spellcheck="false">
+    </p>
+    <div id="catalog-groups"></div>
+  </main>
+
+  <!-- ============ ARTICLE ACTIONS (long press, or the context menu key) ============ -->
+  <dialog id="actions-dialog" aria-labelledby="actions-title">
+    <h2 id="actions-title"></h2>
+    <ul class="item-list">
+      <li><button type="button" data-action="open">Open</button></li>
+      <li><button type="button" data-action="read">Mark read</button></li>
+      <li><button type="button" data-action="share">Share</button></li>
+      <li><button type="button" data-action="hide">Hide</button></li>
+      <li><button type="button" data-action="browser">Open in browser</button></li>
+      <li><button type="button" data-action="cancel">Cancel</button></li>
+    </ul>
+  </dialog>
 
   <!-- ============ ADD FEED ============ -->
   <main id="view-add" class="view" hidden aria-labelledby="add-heading">
@@ -94,6 +121,7 @@
         <button type="button" id="btn-add-cancel">Cancel</button>
       </div>
     </form>
+    <p>Not sure what to add? <button type="button" id="btn-add-catalog">Browse popular feeds</button></p>
     <section id="add-choices" hidden aria-labelledby="add-choices-heading">
       <h2 id="add-choices-heading" tabindex="-1">Several feeds found. Choose one.</h2>
       <ul id="add-choice-list" class="item-list"></ul>
@@ -137,6 +165,12 @@
     <div class="toolbar">
       <button type="button" id="btn-settings-back">Back to feeds</button>
     </div>
+
+    <h2>Starting up</h2>
+    <p>
+      <label for="set-home">Open the app to</label>
+      <select id="set-home"></select>
+    </p>
 
     <h2>Refreshing</h2>
     <p>

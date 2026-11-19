@@ -55,6 +55,30 @@ export async function saveTextFile(filename, contents) {
   return filename;
 }
 
+/**
+ * Share a link. Android opens the system share sheet. Elsewhere, uses the
+ * system share dialog if there is one, or copies the link.
+ * Resolves to 'shared', 'copied' or 'failed'.
+ */
+export async function share(title, url) {
+  try {
+    if (isNative && (await invoke('share', { title, url }))) return 'shared';
+  } catch (e) {
+    console.warn('native share failed', e);
+  }
+  try {
+    if (navigator.share) { await navigator.share({ title, url }); return 'shared'; }
+  } catch (e) {
+    if (e?.name === 'AbortError') return 'shared';
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    return 'copied';
+  } catch {
+    return 'failed';
+  }
+}
+
 export async function appVersion() {
   try {
     if (isNative) return await tauri.app.getVersion();

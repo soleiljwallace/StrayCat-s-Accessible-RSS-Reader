@@ -169,6 +169,51 @@ async fn save_text_file(app: AppHandle, filename: String, contents: String) -> R
     Err(last_err)
 }
 
+// ---- Sharing. On Android this calls SharePlugin.kt (android-src/), which opens
+// the system share sheet. Elsewhere it returns false and the page falls back
+// to the browser's share dialog or the clipboard.
+
+#[cfg(target_os = "android")]
+struct ShareHandle(tauri::plugin::PluginHandle<tauri::Wry>);
+
+#[derive(Serialize)]
+struct ShareArgs {
+    title: String,
+    url: String,
+}
+
+fn share_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri::plugin::Builder::new("share")
+        .setup(|_app, _api| {
+            #[cfg(target_os = "android")]
+            {
+                let handle = _api.register_android_plugin("com.straycat.rssreader", "SharePlugin")?;
+                _app.manage(ShareHandle(handle));
+            }
+            Ok(())
+        })
+        .build()
+}
+
+#[tauri::command]
+async fn share(app: AppHandle, title: String, url: String) -> Result<bool, String> {
+    let args = ShareArgs { title, url };
+    #[cfg(target_os = "android")]
+    {
+        let handle = app.state::<ShareHandle>();
+        handle
+            .0
+            .run_mobile_plugin::<serde_json::Value>("share", args)
+            .map_err(|e| e.to_string())?;
+        return Ok(true);
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, args);
+        Ok(false)
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let client = reqwest::Client::builder()
@@ -182,13 +227,15 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(share_plugin())
         .manage(client)
         .invoke_handler(tauri::generate_handler![
             fetch_text,
             open_external,
             notification_permission,
             notify,
-            save_text_file
+            save_text_file,
+            share
         ])
         .run(tauri::generate_context!())
         .expect("error while running the app");

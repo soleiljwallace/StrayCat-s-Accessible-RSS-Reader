@@ -17,9 +17,12 @@ Every Android build is signed with the same key, so a new version installs over 
 The app shows one screen at a time. Each screen starts with a level 1 heading, and that heading gets focus when the screen opens.
 
 - Feeds: buttons for "All articles" and each feed, with unread counts. If you use folders, each folder is a level 2 heading.
-- Articles: the articles in a feed, one button each. In focus mode, Up and Down arrows move between them.
-- Article: the cleaned-up article. Headings inside the article start at level 2. Images with no description are removed. Links open in your browser.
+- Articles: the articles in a feed, one button each. Tap or double-tap an article to open it. Long press it (with TalkBack, double-tap and hold) for Open, Mark read, Share, Hide and Open in browser. On Windows, the Applications key or Shift+F10 opens the same menu. In focus mode, Up and Down arrows move between articles.
+- Article: the cleaned-up story comes first, and the actions (Next, Previous, Mark unread, Share, and so on) follow it. Headings inside the article start at level 2. Images with no description are removed. Links open in your browser.
+- Popular feeds: about 70 well-known feeds by category, each added with one tap.
 - Settings: refreshing, reading, podcasts, OPML import and export, and the shortcut list.
+
+The app opens to All articles. You can change that in Settings under "Open the app to": choose All articles, the Feeds list, or any one feed. On Android, the back button or gesture goes back one screen.
 
 Status messages such as "Refreshed. 5 new articles." are announced without moving focus.
 

@@ -40,3 +40,8 @@ input[type="range"] { width: 100%; }
 .content pre { white-space: pre-wrap; }
 .content a { color: var(--accent); }
 .end-toolbar { margin-top: 1.5rem; }
+/* Long press opens the actions menu, so don't select text on press-and-hold. */
+#article-list button { -webkit-touch-callout: none; user-select: none; }
+dialog { color: var(--fg); background: var(--bg); border: 2px solid var(--muted); border-radius: 8px; max-width: 30rem; width: 90%; }
+dialog::backdrop { background: rgb(0 0 0 / 0.5); }
+.catalog-desc { display: block; font-weight: 400; color: var(--muted); }

@@ -4,6 +4,7 @@ import * as player from './player.js';
 import { parseFeed, discoverFeeds, NotAFeedError, COMMON_FEED_PATHS } from './parse.js';
 import { cleanHtml, extractArticle, wordCount } from './extract.js';
 import { parseOpml, buildOpml } from './opml.js';
+import { CATALOG } from './catalog.js';
 
 // ---------------------------------------------------------------- state
 
@@ -16,6 +17,7 @@ const DEFAULT_SETTINGS = {
   sort: 'newest',
   keepDays: 30,
   speed: 1,
+  home: 'all',          // 'feeds', 'all', or a feed id
 };
 const SHORT_TEXT_WORDS = 150;  // feed text shorter than this counts as "only a summary"
 const FETCH_TIMEOUT_MS = 25000;
@@ -54,9 +56,10 @@ function announce(message) {
   announceTimer = setTimeout(() => { region.textContent = message; }, 60);
 }
 
-const VIEWS = ['feeds', 'list', 'article', 'add', 'feed-edit', 'settings'];
+const VIEWS = ['feeds', 'list', 'article', 'add', 'feed-edit', 'settings', 'catalog'];
 function show(view, focusTarget) {
   state.view = view;
+  if (view !== 'feeds') ensureBackGuard();
   for (const v of VIEWS) $('view-' + v).hidden = v !== view;
   window.scrollTo(0, 0);
   const target = focusTarget || $('view-' + view).querySelector('h1');
@@ -71,7 +74,7 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 function unreadCount(feedId) {
   let n = 0;
-  for (const a of articles.values()) if (!a.read && (feedId === 'all' || a.feedId === feedId)) n++;
+  for (const a of articles.values()) if (!a.read && !a.hidden && (feedId === 'all' || a.feedId === feedId)) n++;
   return n;
 }
 
@@ -181,7 +184,7 @@ $('feed-groups').addEventListener('click', (e) => {
 // ---------------------------------------------------------------- article list view
 
 function listArticles() {
-  const list = [...articles.values()].filter((a) =>
+  const list = [...articles.values()].filter((a) => !a.hidden &&
     (state.feedId === 'all' || a.feedId === state.feedId) && (!state.unreadOnly || !a.read || state.sticky.has(a.id)));
   const dir = settings.sort === 'oldest' ? 1 : -1;
   return list.sort((a, b) => dir * ((a.published || a.added) - (b.published || b.added)));
@@ -306,6 +309,7 @@ async function renderArticle() {
   $('article-meta').textContent = [feedTitle(feed), a.author, fullDate(a.published)].filter(Boolean).join(', ');
   $('btn-toggle-read').textContent = a.read ? 'Mark unread' : 'Mark read';
   $('btn-open').hidden = !a.link;
+  $('btn-share').hidden = !a.link;
   $('btn-toggle-source').hidden = !a.link;
   updatePlayer();
 
@@ -579,13 +583,19 @@ async function findFeed(url) {
   }
 }
 
-async function subscribe(url, folder, parsed) {
+async function subscribe(url, folder, parsed, { stay = false, title = '' } = {}) {
   const existing = [...feeds.values()].find((f) => f.url === url);
   if (existing) { announce(`You already follow ${feedTitle(existing)}.`); return; }
-  const feed = { id: newId(), url, title: '', folder: folder.trim(), fullText: 'default', customTitle: false, lastFetched: null, lastError: null };
+  const feed = { id: newId(), url, title, folder: folder.trim(), fullText: 'default', customTitle: false, lastFetched: null, lastError: null };
   feeds.set(feed.id, feed);
   if (parsed) { mergeItems(feed, parsed); saveFeed(feed); } else await refreshFeed(feed);
   const count = [...articles.values()].filter((a) => a.feedId === feed.id).length;
+  if (stay) {
+    announce(feed.lastError
+      ? `Added ${feedTitle(feed)}, but it couldn't be read right now: ${feed.lastError}`
+      : `Added ${feedTitle(feed)}, ${plural(count, 'article')}.`);
+    return feed;
+  }
   $('add-form').reset();
   $('add-choices').hidden = true;
   renderFeeds();
@@ -675,6 +685,13 @@ $('btn-unsubscribe').addEventListener('click', () => {
 // ---------------------------------------------------------------- settings and OPML
 
 function renderSettings() {
+  const home = $('set-home');
+  home.replaceChildren(
+    el('option', { value: 'all', textContent: 'All articles' }),
+    el('option', { value: 'feeds', textContent: 'Feeds list' }),
+    ...[...feeds.values()].sort((a, b) => feedTitle(a).localeCompare(feedTitle(b)))
+      .map((f) => el('option', { value: f.id, textContent: feedTitle(f) })));
+  home.value = settings.home === 'feeds' || settings.home === 'all' || feeds.has(settings.home) ? settings.home : 'all';
   $('set-interval').value = String(settings.interval);
   $('set-refresh-start').checked = settings.refreshOnStart;
   $('set-notify').checked = settings.notify;
@@ -696,6 +713,7 @@ bind('set-mark-on-open', 'markOnOpen', (t) => t.checked);
 bind('set-sort', 'sort', (t) => t.value);
 bind('set-keep', 'keepDays', (t) => Number(t.value));
 bind('set-speed', 'speed', (t) => Number(t.value));
+bind('set-home', 'home', (t) => t.value);
 $('set-notify').addEventListener('change', async (e) => {
   if (e.target.checked && !(await native.notificationsAllowed())) {
     e.target.checked = false;
@@ -781,6 +799,7 @@ function goBack() {
     case 'list': renderFeeds(); show('feeds', $('feed-groups').querySelector(`[data-feed-id="${CSS.escape(state.feedId)}"]`)); break;
     case 'feed-edit': show('list'); break;
     case 'add':
+    case 'catalog':
     case 'settings': renderFeeds(); show('feeds'); break;
     default: break;
   }
@@ -826,11 +845,10 @@ $('btn-toggle-unread').addEventListener('click', () => {
 $('btn-feed-settings').addEventListener('click', openFeedEdit);
 $('btn-edit-cancel').addEventListener('click', () => show('list'));
 $('btn-article-back').addEventListener('click', backFromArticle);
-$('btn-article-back-bottom').addEventListener('click', backFromArticle);
 $('btn-prev').addEventListener('click', () => stepArticle(-1));
 $('btn-next').addEventListener('click', () => stepArticle(1));
-$('btn-next-bottom').addEventListener('click', () => stepArticle(1));
 $('btn-open').addEventListener('click', () => { const a = articles.get(state.articleId); if (a?.link) native.openExternal(a.link); });
+$('btn-share').addEventListener('click', () => shareArticle(articles.get(state.articleId)));
 $('btn-toggle-read').addEventListener('click', () => toggleArticleRead(articles.get(state.articleId)));
 $('btn-toggle-source').addEventListener('click', async () => {
   const a = articles.get(state.articleId);
@@ -840,6 +858,167 @@ $('btn-toggle-source').addEventListener('click', async () => {
   await renderArticle();
   if (state.showFeedVersion) announce('Showing the feed version.');
   else if (a.fullHtml) announce('Showing the full article.');
+});
+
+// ---------------------------------------------------------------- article actions (long press)
+
+async function shareArticle(a) {
+  if (!a?.link) { announce('This article has no link to share.'); return; }
+  const result = await native.share(a.title || '', a.link);
+  if (result === 'copied') announce('Link copied to the clipboard.');
+  else if (result === 'failed') announce("Couldn't share this article.");
+}
+
+function hideArticle(a) {
+  a.hidden = true;
+  setRead(a, true);
+  saveArticle(a);
+  state.sticky.delete(a.id);
+  announce('Hidden.');
+}
+
+const dialog = $('actions-dialog');
+let dialogArticleId = null;
+
+function openActions(articleId) {
+  const a = articles.get(articleId);
+  if (!a || dialog.open) return;
+  dialogArticleId = articleId;
+  $('actions-title').textContent = a.title || 'Untitled';
+  dialog.querySelector('[data-action="read"]').textContent = a.read ? 'Mark unread' : 'Mark read';
+  dialog.querySelector('[data-action="share"]').hidden = !a.link;
+  dialog.querySelector('[data-action="browser"]').hidden = !a.link;
+  dialog.showModal();
+  dialog.querySelector('[data-action="open"]').focus();
+}
+
+function closeActions(focusId) {
+  dialog.close();
+  const target = focusId && $('article-list').querySelector(`[data-article-id="${CSS.escape(focusId)}"]`);
+  (target || $('list-heading')).focus();
+}
+
+dialog.addEventListener('click', (e) => {
+  const action = e.target.closest('button')?.dataset.action;
+  if (!action) return;
+  const a = articles.get(dialogArticleId);
+  if (!a) { closeActions(); return; }
+  switch (action) {
+    case 'open': dialog.close(); openArticle(a.id); return;
+    case 'read':
+      setRead(a, !a.read);
+      state.sticky.add(a.id);
+      renderList();
+      closeActions(a.id);
+      announce(a.read ? 'Marked read.' : 'Marked unread.');
+      return;
+    case 'share': closeActions(a.id); shareArticle(a); return;
+    case 'hide': {
+      // Focus moves to the next article, since this one disappears.
+      const i = state.listOrder.indexOf(a.id);
+      hideArticle(a);
+      renderList();
+      closeActions(state.listOrder[i] || state.listOrder[i - 1]);
+      return;
+    }
+    case 'browser': closeActions(a.id); if (a.link) native.openExternal(a.link); return;
+    default: closeActions(a.id);
+  }
+});
+// Escape closes the dialog; put focus back on the article it was opened from.
+dialog.addEventListener('cancel', (e) => { e.preventDefault(); closeActions(dialogArticleId); });
+
+// Long press on Android (also double-tap-and-hold with TalkBack), and the
+// context menu key or Shift+F10 on Windows, open the actions menu.
+let suppressClick = false;
+$('article-list').addEventListener('contextmenu', (e) => {
+  const id = e.target.closest('button')?.dataset.articleId;
+  if (!id) return;
+  e.preventDefault();
+  suppressClick = true;
+  setTimeout(() => { suppressClick = false; }, 700);
+  openActions(id);
+});
+// Backup timer, for WebViews that don't send contextmenu on a long touch.
+let pressTimer = null;
+$('article-list').addEventListener('touchstart', (e) => {
+  const id = e.target.closest('button')?.dataset.articleId;
+  if (!id) return;
+  clearTimeout(pressTimer);
+  pressTimer = setTimeout(() => { suppressClick = true; setTimeout(() => { suppressClick = false; }, 700); openActions(id); }, 600);
+}, { passive: true });
+for (const ev of ['touchend', 'touchmove', 'touchcancel']) {
+  $('article-list').addEventListener(ev, () => clearTimeout(pressTimer), { passive: true });
+}
+$('article-list').addEventListener('click', (e) => {
+  if (suppressClick) { e.stopImmediatePropagation(); e.preventDefault(); }
+}, true);
+
+// ---------------------------------------------------------------- popular feeds
+
+function renderCatalog() {
+  const filter = $('catalog-filter').value.trim().toLowerCase();
+  const subscribed = new Set([...feeds.values()].map((f) => f.url));
+  const groups = [];
+  for (const group of CATALOG) {
+    const matches = group.feeds.filter((f) => !filter
+      || `${f.name} ${f.desc || ''} ${group.category}`.toLowerCase().includes(filter));
+    if (!matches.length) continue;
+    groups.push(el('h2', { textContent: group.category }));
+    groups.push(el('ul', { className: 'item-list' }, ...matches.map((f) => {
+      const added = subscribed.has(f.url);
+      const b = el('button', { type: 'button' },
+        added ? `${f.name}, added` : `Add ${f.name}`,
+        ...(f.desc ? [el('span', { className: 'visually-hidden', textContent: ', ' }),
+          el('span', { className: 'catalog-desc', textContent: f.desc })] : []));
+      if (added) b.setAttribute('aria-disabled', 'true');
+      Object.assign(b.dataset, { url: f.url, name: f.name, folder: group.category });
+      return el('li', {}, b);
+    })));
+  }
+  if (!groups.length) groups.push(el('p', { textContent: 'No feeds match that filter.' }));
+  $('catalog-groups').replaceChildren(...groups);
+}
+
+$('catalog-filter').addEventListener('input', renderCatalog);
+$('catalog-groups').addEventListener('click', async (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.getAttribute('aria-disabled') === 'true') { announce(`${b.dataset.name} is already in your feeds.`); return; }
+  b.setAttribute('aria-disabled', 'true');
+  announce(`Adding ${b.dataset.name}…`);
+  await subscribe(b.dataset.url, b.dataset.folder, null, { stay: true, title: b.dataset.name });
+  // Rebuild the list, keeping focus on the same button (now labelled "added").
+  renderCatalog();
+  $('catalog-groups').querySelector(`[data-url="${CSS.escape(b.dataset.url)}"]`)?.focus();
+});
+
+function openCatalog() {
+  $('catalog-filter').value = '';
+  renderCatalog();
+  show('catalog');
+}
+$('btn-catalog').addEventListener('click', openCatalog);
+$('btn-add-catalog').addEventListener('click', openCatalog);
+$('btn-catalog-back').addEventListener('click', goBack);
+
+// ---------------------------------------------------------------- Android back button
+
+// Android's back button or gesture walks back through the web page's history.
+// One extra history entry is kept, so each back press goes back one screen in
+// the app. On the Feeds screen it is let through, and the next press closes the app.
+let guardActive = false;
+function ensureBackGuard() {
+  if (guardActive) return;
+  history.pushState({ guard: true }, '');
+  guardActive = true;
+}
+window.addEventListener('popstate', () => {
+  guardActive = false;
+  if (dialog.open) { closeActions(dialogArticleId); ensureBackGuard(); return; }
+  if (state.view === 'feeds') { announce('Press back again to close the app.'); return; }
+  goBack();
+  ensureBackGuard();
 });
 
 // ---------------------------------------------------------------- start
@@ -855,7 +1034,9 @@ async function start() {
   const v = await native.appVersion();
   if (v) $('app-version').textContent = v;
   renderFeeds();
-  show('feeds');
+  if (feeds.size && settings.home !== 'feeds' && (settings.home === 'all' || feeds.has(settings.home))) openList(settings.home);
+  else show('feeds');
+  ensureBackGuard();
   if (settings.refreshOnStart && feeds.size) refreshAll({ auto: true });
 }
 
