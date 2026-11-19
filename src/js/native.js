@@ -79,6 +79,29 @@ export async function share(title, url) {
   }
 }
 
+/** Tell Android what the podcast player is doing (earbud buttons, lock screen). */
+export async function mediaUpdate(info) {
+  if (!isNative) return false;
+  try { return await invoke('media_update', { info }); } catch (e) { console.warn('media update failed', e); return false; }
+}
+
+/**
+ * Let the person choose a text file and return its contents, or null if they cancel.
+ * Android uses the system picker; elsewhere a hidden file input.
+ */
+export async function pickTextFile() {
+  if (isNative) {
+    const res = await invoke('pick_text_file');
+    if (res) return res.cancelled ? null : res.text;
+  }
+  return new Promise((resolve) => {
+    const input = Object.assign(document.createElement('input'), { type: 'file', accept: '.opml,.xml,.txt,text/xml,application/xml,text/plain,text/x-opml' });
+    input.addEventListener('change', async () => resolve(input.files?.[0] ? await input.files[0].text() : null));
+    input.addEventListener('cancel', () => resolve(null));
+    input.click();
+  });
+}
+
 export async function appVersion() {
   try {
     if (isNative) return await tauri.app.getVersion();

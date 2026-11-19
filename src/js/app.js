@@ -59,7 +59,6 @@ function announce(message) {
 const VIEWS = ['feeds', 'list', 'article', 'add', 'feed-edit', 'settings', 'catalog'];
 function show(view, focusTarget) {
   state.view = view;
-  if (view !== 'feeds') ensureBackGuard();
   for (const v of VIEWS) $('view-' + v).hidden = v !== view;
   window.scrollTo(0, 0);
   const target = focusTarget || $('view-' + view).querySelector('h1');
@@ -413,9 +412,58 @@ async function togglePlay(article) {
   announce(playing ? 'Playing.' : 'Paused.');
 }
 
+// Earbud, headset, lock screen and notification buttons.
+function syncMedia() {
+  const a = player.playingArticle();
+  if (!a) return;
+  const info = {
+    title: a.title || 'Untitled',
+    artist: feedTitle(feeds.get(a.feedId)),
+    playing: player.isPlaying(),
+    stopped: false,
+    position: Math.floor(player.position() * 1000),
+    duration: Math.floor(player.duration() * 1000),
+    speed: player.speed(),
+  };
+  native.mediaUpdate(info);
+  if ('mediaSession' in navigator) {
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({ title: info.title, artist: info.artist });
+      navigator.mediaSession.playbackState = info.playing ? 'playing' : 'paused';
+    } catch { /* not supported here */ }
+  }
+}
+
+function mediaButton(action, value) {
+  const a = player.playingArticle();
+  if (!a) return;
+  if (action === 'play' && !player.isPlaying()) player.toggle();
+  else if (action === 'pause' && player.isPlaying()) player.toggle();
+  else if (action === 'forward') player.skip(30);
+  else if (action === 'back') player.skip(-15);
+  else if (action === 'seek' && value >= 0) { player.seek(value / 1000); syncMedia(); }
+}
+window.__strayMedia = mediaButton;
+
+if ('mediaSession' in navigator) {
+  const handlers = {
+    play: () => mediaButton('play'),
+    pause: () => mediaButton('pause'),
+    seekforward: () => mediaButton('forward'),
+    seekbackward: () => mediaButton('back'),
+    nexttrack: () => mediaButton('forward'),
+    previoustrack: () => mediaButton('back'),
+    seekto: (d) => mediaButton('seek', Math.floor((d.seekTime || 0) * 1000)),
+  };
+  for (const [name, fn] of Object.entries(handlers)) {
+    try { navigator.mediaSession.setActionHandler(name, fn); } catch { /* unsupported action */ }
+  }
+}
+
 player.setHandlers({
   change(err) {
     if (err) announce("Couldn't play this episode.");
+    syncMedia();
     if (state.view === 'article') updatePlayer();
     if (state.view === 'feeds') renderNowPlaying();
   },
@@ -742,15 +790,27 @@ async function importOpml(text) {
   if (fresh.length) setTimeout(() => refresh(fresh), 1500);
 }
 
-$('opml-file').addEventListener('change', async (e) => {
-  const file = e.target.files?.[0];
-  if (file) await importOpml(await file.text());
-  e.target.value = '';
-});
+// A file can be OPML (from another feed reader) or plain text with one address per line.
+async function importFeedsText(text) {
+  if (/<opml[\s>]/i.test(text)) return importOpml(text);
+  const urls = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => /^(https?|feed):\/\/\S+$/i.test(l)).map(normalizeUrl);
+  if (!urls.length) { announce("That file doesn't contain any feed addresses or OPML."); return; }
+  const outlines = urls.map((u) => `<outline type="rss" text="" xmlUrl="${u.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"/>`).join('');
+  return importOpml(`<opml version="2.0"><body>${outlines}</body></opml>`);
+}
+
+async function importFromFile() {
+  let text;
+  try { text = await native.pickTextFile(); } catch (err) { announce(`Couldn't open the file: ${err.message || err}`); return; }
+  if (text == null) return;
+  await importFeedsText(text);
+}
+$('btn-import-file').addEventListener('click', importFromFile);
+$('btn-import-file-feeds').addEventListener('click', importFromFile);
 $('btn-opml-import').addEventListener('click', () => {
   const text = $('opml-text').value.trim();
-  if (!text) { announce('Paste OPML text into the box first.'); $('opml-text').focus(); return; }
-  importOpml(text);
+  if (!text) { announce('Paste OPML text or feed addresses into the box first.'); $('opml-text').focus(); return; }
+  importFeedsText(text);
   $('opml-text').value = '';
 });
 $('btn-opml-save').addEventListener('click', async () => {
@@ -1004,22 +1064,13 @@ $('btn-catalog-back').addEventListener('click', goBack);
 
 // ---------------------------------------------------------------- Android back button
 
-// Android's back button or gesture walks back through the web page's history.
-// One extra history entry is kept, so each back press goes back one screen in
-// the app. On the Feeds screen it is let through, and the next press closes the app.
-let guardActive = false;
-function ensureBackGuard() {
-  if (guardActive) return;
-  history.pushState({ guard: true }, '');
-  guardActive = true;
-}
-window.addEventListener('popstate', () => {
-  guardActive = false;
-  if (dialog.open) { closeActions(dialogArticleId); ensureBackGuard(); return; }
-  if (state.view === 'feeds') { announce('Press back again to close the app.'); return; }
+// Android's back button or gesture is handled natively (StrayPlugin.kt) and
+// sent here. It goes back one screen and never closes the app.
+window.__strayBack = () => {
+  if (dialog.open) { closeActions(dialogArticleId); return; }
+  if (state.view === 'feeds') { announce('Feeds list. This is the first screen.'); return; }
   goBack();
-  ensureBackGuard();
-});
+};
 
 // ---------------------------------------------------------------- start
 
@@ -1036,7 +1087,6 @@ async function start() {
   renderFeeds();
   if (feeds.size && settings.home !== 'feeds' && (settings.home === 'all' || feeds.has(settings.home))) openList(settings.home);
   else show('feeds');
-  ensureBackGuard();
   if (settings.refreshOnStart && feeds.size) refreshAll({ auto: true });
 }
 

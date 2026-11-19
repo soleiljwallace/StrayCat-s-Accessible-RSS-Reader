@@ -20,6 +20,7 @@
       <button type="button" id="btn-refresh-all">Refresh all</button>
       <button type="button" id="btn-add-feed">Add feed</button>
       <button type="button" id="btn-catalog">Popular feeds</button>
+      <button type="button" id="btn-import-file-feeds">Import feeds from a file</button>
       <button type="button" id="btn-settings">Settings</button>
     </div>
     <section id="now-playing" hidden aria-labelledby="now-playing-heading">
@@ -227,13 +228,13 @@
       </select>
     </p>
 
-    <h2>Move feeds between devices (OPML)</h2>
+    <h2>Import and export feeds</h2>
+    <p>Import accepts OPML files from other feed readers, or a plain text file with one feed address per line.</p>
+    <div class="toolbar">
+      <button type="button" id="btn-import-file">Import feeds from a file</button>
+    </div>
     <p>
-      <label for="opml-file">Import an OPML file</label>
-      <input type="file" id="opml-file" accept=".opml,.xml,text/xml,application/xml,text/x-opml">
-    </p>
-    <p>
-      <label for="opml-text">Or paste OPML text</label><br>
+      <label for="opml-text">Or paste OPML text or feed addresses</label><br>
       <textarea id="opml-text" rows="4" cols="40" spellcheck="false"></textarea>
     </p>
     <div class="toolbar">

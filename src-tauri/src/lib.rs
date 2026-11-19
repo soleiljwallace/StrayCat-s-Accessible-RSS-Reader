@@ -169,48 +169,77 @@ async fn save_text_file(app: AppHandle, filename: String, contents: String) -> R
     Err(last_err)
 }
 
-// ---- Sharing. On Android this calls SharePlugin.kt (android-src/), which opens
-// the system share sheet. Elsewhere it returns false and the page falls back
-// to the browser's share dialog or the clipboard.
+// ---- Android-only features, in android-src/StrayPlugin.kt: the share sheet,
+// the media session (earbud buttons, lock screen, audio focus) and the file
+// picker. On other systems these commands return false or null and the page
+// uses web features instead.
 
 #[cfg(target_os = "android")]
-struct ShareHandle(tauri::plugin::PluginHandle<tauri::Wry>);
+struct StrayHandle(tauri::plugin::PluginHandle<tauri::Wry>);
 
-#[derive(Serialize)]
-struct ShareArgs {
-    title: String,
-    url: String,
-}
-
-fn share_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
-    tauri::plugin::Builder::new("share")
+fn stray_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri::plugin::Builder::new("stray")
         .setup(|_app, _api| {
             #[cfg(target_os = "android")]
             {
-                let handle = _api.register_android_plugin("com.straycat.rssreader", "SharePlugin")?;
-                _app.manage(ShareHandle(handle));
+                let handle = _api.register_android_plugin("com.straycat.rssreader", "StrayPlugin")?;
+                _app.manage(StrayHandle(handle));
             }
             Ok(())
         })
         .build()
 }
 
+#[cfg(target_os = "android")]
+fn run_android(app: &AppHandle, command: &str, args: serde_json::Value) -> Result<serde_json::Value, String> {
+    app.state::<StrayHandle>()
+        .0
+        .run_mobile_plugin::<serde_json::Value>(command, args)
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn share(app: AppHandle, title: String, url: String) -> Result<bool, String> {
-    let args = ShareArgs { title, url };
     #[cfg(target_os = "android")]
     {
-        let handle = app.state::<ShareHandle>();
-        handle
-            .0
-            .run_mobile_plugin::<serde_json::Value>("share", args)
-            .map_err(|e| e.to_string())?;
+        run_android(&app, "share", serde_json::json!({ "title": title, "url": url }))?;
         return Ok(true);
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = (app, args);
+        let _ = (app, title, url);
         Ok(false)
+    }
+}
+
+/// Tell Android what the podcast player is doing. `info` holds title, artist,
+/// playing, stopped, position and duration (milliseconds) and speed.
+#[tauri::command]
+async fn media_update(app: AppHandle, info: serde_json::Value) -> Result<bool, String> {
+    #[cfg(target_os = "android")]
+    {
+        run_android(&app, "media", info)?;
+        return Ok(true);
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, info);
+        Ok(false)
+    }
+}
+
+/// Android: open the system file picker and return { text } or { cancelled: true }.
+/// Elsewhere returns null, and the page uses its own file picker.
+#[tauri::command]
+async fn pick_text_file(app: AppHandle) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        return run_android(&app, "pickFile", serde_json::Value::Null);
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        Ok(serde_json::Value::Null)
     }
 }
 
@@ -227,7 +256,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(share_plugin())
+        .plugin(stray_plugin())
         .manage(client)
         .invoke_handler(tauri::generate_handler![
             fetch_text,
@@ -235,7 +264,9 @@ pub fn run() {
             notification_permission,
             notify,
             save_text_file,
-            share
+            share,
+            media_update,
+            pick_text_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running the app");
