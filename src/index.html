@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StrayCat's Accessible RSS Reader</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="vendor/purify.min.js"></script>
+  <script src="vendor/Readability.js"></script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <!-- Announcements for screen readers. Polite, so they never cut off what is being read. -->
+  <div id="status" role="status" aria-live="polite" aria-atomic="true" class="visually-hidden"></div>
+
+  <!-- ============ FEEDS ============ -->
+  <main id="view-feeds" class="view" aria-labelledby="feeds-heading">
+    <h1 id="feeds-heading" tabindex="-1">Feeds</h1>
+    <div class="toolbar">
+      <button type="button" id="btn-refresh-all">Refresh all</button>
+      <button type="button" id="btn-add-feed">Add feed</button>
+      <button type="button" id="btn-settings">Settings</button>
+    </div>
+    <section id="now-playing" hidden aria-labelledby="now-playing-heading">
+      <h2 id="now-playing-heading">Now playing</h2>
+      <p id="now-playing-title"></p>
+      <div class="toolbar">
+        <button type="button" id="np-toggle">Pause</button>
+        <button type="button" id="np-goto">Go to episode</button>
+      </div>
+    </section>
+    <p id="feeds-summary"></p>
+    <div id="feed-groups"></div>
+  </main>
+
+  <!-- ============ ARTICLE LIST ============ -->
+  <main id="view-list" class="view" hidden aria-labelledby="list-heading">
+    <h1 id="list-heading" tabindex="-1">Articles</h1>
+    <div class="toolbar">
+      <button type="button" id="btn-list-back">Back to feeds</button>
+      <button type="button" id="btn-list-refresh">Refresh</button>
+      <button type="button" id="btn-mark-all">Mark all read</button>
+      <button type="button" id="btn-toggle-unread" aria-pressed="true">Unread only</button>
+      <button type="button" id="btn-feed-settings">Feed settings</button>
+    </div>
+    <p id="list-summary"></p>
+    <ul id="article-list" class="item-list"></ul>
+  </main>
+
+  <!-- ============ ARTICLE ============ -->
+  <main id="view-article" class="view" hidden aria-labelledby="article-heading">
+    <h1 id="article-heading" tabindex="-1"></h1>
+    <p id="article-meta" class="meta"></p>
+    <div class="toolbar">
+      <button type="button" id="btn-article-back">Back to list</button>
+      <button type="button" id="btn-prev">Previous</button>
+      <button type="button" id="btn-next">Next</button>
+      <button type="button" id="btn-open">Open in browser</button>
+      <button type="button" id="btn-toggle-read">Mark unread</button>
+      <button type="button" id="btn-toggle-source">Show feed version</button>
+    </div>
+    <section id="player" hidden aria-labelledby="player-heading">
+      <h2 id="player-heading">Audio</h2>
+      <div class="toolbar">
+        <button type="button" id="pl-toggle">Play</button>
+        <button type="button" id="pl-back">Back 15 seconds</button>
+        <button type="button" id="pl-fwd">Forward 30 seconds</button>
+        <button type="button" id="pl-speed">Speed 1 times</button>
+      </div>
+      <label for="pl-pos">Position</label>
+      <input type="range" id="pl-pos" min="0" max="0" step="1" value="0">
+    </section>
+    <div id="article-content" class="content"></div>
+    <div class="toolbar end-toolbar">
+      <button type="button" id="btn-next-bottom">Next article</button>
+      <button type="button" id="btn-article-back-bottom">Back to list</button>
+    </div>
+  </main>
+
+  <!-- ============ ADD FEED ============ -->
+  <main id="view-add" class="view" hidden aria-labelledby="add-heading">
+    <h1 id="add-heading" tabindex="-1">Add feed</h1>
+    <form id="add-form">
+      <p>
+        <label for="add-url">Feed or website address</label>
+        <input type="text" id="add-url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+      </p>
+      <p>
+        <label for="add-folder">Folder (optional)</label>
+        <input type="text" id="add-folder" list="folder-options" autocomplete="off">
+      </p>
+      <div class="toolbar">
+        <button type="submit">Add</button>
+        <button type="button" id="btn-add-cancel">Cancel</button>
+      </div>
+    </form>
+    <section id="add-choices" hidden aria-labelledby="add-choices-heading">
+      <h2 id="add-choices-heading" tabindex="-1">Several feeds found. Choose one.</h2>
+      <ul id="add-choice-list" class="item-list"></ul>
+    </section>
+  </main>
+
+  <!-- ============ FEED SETTINGS ============ -->
+  <main id="view-feed-edit" class="view" hidden aria-labelledby="edit-heading">
+    <h1 id="edit-heading" tabindex="-1">Feed settings</h1>
+    <form id="edit-form">
+      <p>
+        <label for="edit-title">Name</label>
+        <input type="text" id="edit-title" autocomplete="off">
+      </p>
+      <p>
+        <label for="edit-folder">Folder</label>
+        <input type="text" id="edit-folder" list="folder-options" autocomplete="off">
+      </p>
+      <p>
+        <label for="edit-fulltext">Full article text</label>
+        <select id="edit-fulltext">
+          <option value="default">Use the app setting</option>
+          <option value="auto">Fetch when the feed text is short</option>
+          <option value="always">Always fetch</option>
+          <option value="never">Never fetch, use the feed text</option>
+        </select>
+      </p>
+      <p>Feed address: <span id="edit-url"></span></p>
+      <p id="edit-error"></p>
+      <div class="toolbar">
+        <button type="submit">Save</button>
+        <button type="button" id="btn-edit-cancel">Cancel</button>
+        <button type="button" id="btn-unsubscribe">Unsubscribe</button>
+      </div>
+    </form>
+  </main>
+
+  <!-- ============ SETTINGS ============ -->
+  <main id="view-settings" class="view" hidden aria-labelledby="settings-heading">
+    <h1 id="settings-heading" tabindex="-1">Settings</h1>
+    <div class="toolbar">
+      <button type="button" id="btn-settings-back">Back to feeds</button>
+    </div>
+
+    <h2>Refreshing</h2>
+    <p>
+      <label for="set-interval">Check for new articles</label>
+      <select id="set-interval">
+        <option value="0">Only when I refresh</option>
+        <option value="15">Every 15 minutes</option>
+        <option value="30">Every 30 minutes</option>
+        <option value="60">Every hour</option>
+        <option value="120">Every 2 hours</option>
+        <option value="360">Every 6 hours</option>
+      </select>
+    </p>
+    <p><input type="checkbox" id="set-refresh-start"> <label for="set-refresh-start">Refresh when the app starts</label></p>
+    <p><input type="checkbox" id="set-notify"> <label for="set-notify">Notify me about new articles</label></p>
+
+    <h2>Reading</h2>
+    <p>
+      <label for="set-fulltext">Full article text</label>
+      <select id="set-fulltext">
+        <option value="auto">Fetch when the feed text is short</option>
+        <option value="always">Always fetch</option>
+        <option value="never">Never fetch, use the feed text</option>
+      </select>
+    </p>
+    <p><input type="checkbox" id="set-mark-on-open"> <label for="set-mark-on-open">Mark articles read when opened</label></p>
+    <p>
+      <label for="set-sort">Article order</label>
+      <select id="set-sort">
+        <option value="newest">Newest first</option>
+        <option value="oldest">Oldest first</option>
+      </select>
+    </p>
+    <p>
+      <label for="set-keep">Keep read articles for</label>
+      <select id="set-keep">
+        <option value="7">1 week</option>
+        <option value="30">30 days</option>
+        <option value="90">90 days</option>
+        <option value="365">1 year</option>
+      </select>
+    </p>
+
+    <h2>Podcasts</h2>
+    <p>
+      <label for="set-speed">Default speed</label>
+      <select id="set-speed">
+        <option value="0.75">0.75 times</option>
+        <option value="1">1 times</option>
+        <option value="1.25">1.25 times</option>
+        <option value="1.5">1.5 times</option>
+        <option value="1.75">1.75 times</option>
+        <option value="2">2 times</option>
+      </select>
+    </p>
+
+    <h2>Move feeds between devices (OPML)</h2>
+    <p>
+      <label for="opml-file">Import an OPML file</label>
+      <input type="file" id="opml-file" accept=".opml,.xml,text/xml,application/xml,text/x-opml">
+    </p>
+    <p>
+      <label for="opml-text">Or paste OPML text</label><br>
+      <textarea id="opml-text" rows="4" cols="40" spellcheck="false"></textarea>
+    </p>
+    <div class="toolbar">
+      <button type="button" id="btn-opml-import">Import pasted text</button>
+      <button type="button" id="btn-opml-save">Export to a file</button>
+      <button type="button" id="btn-opml-copy">Copy export to clipboard</button>
+    </div>
+
+    <h2 id="shortcuts-heading" tabindex="-1">Keyboard shortcuts</h2>
+    <p>Plain letters work in focus mode. Hold Alt with any letter to use it from browse mode too, for example Alt+J.</p>
+    <ul id="shortcut-list"></ul>
+
+    <h2>About</h2>
+    <p>StrayCat's Accessible RSS Reader, version <span id="app-version">0.1.0</span>.</p>
+  </main>
+
+  <datalist id="folder-options"></datalist>
+</body>
+</html>

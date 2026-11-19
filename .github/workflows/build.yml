@@ -1,0 +1,131 @@
+name: Build
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install the Tauri command line tool
+        run: npm install
+
+      - name: Make icons
+        run: npx tauri icon app-icon.png
+
+      - name: Build
+        run: npx tauri build
+
+      - name: Collect files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item (Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1).FullName out/StrayCatRSS-Setup.exe
+          Copy-Item src-tauri/target/release/straycat-rss.exe out/StrayCatRSS-Portable.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: out/*
+
+  android:
+    runs-on: ubuntu-latest
+    env:
+      NDK_VERSION: "27.2.12479018"
+      BUILD_TOOLS: "34.0.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install the Android NDK and build tools
+        run: |
+          sdkmanager --install "ndk;${NDK_VERSION}" "build-tools;${BUILD_TOOLS}" "platforms;android-34"
+          echo "NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install the Tauri command line tool
+        run: npm install
+
+      - name: Set up the Android project
+        run: |
+          npx tauri android init --ci
+          npx tauri icon app-icon.png
+
+      - name: Build
+        run: npx tauri android build --apk --target aarch64
+
+      # The same key signs every build, so new versions install over old ones
+      # and your feeds are kept.
+      - name: Sign
+        run: |
+          UNSIGNED=$(find src-tauri/gen/android -name "*release-unsigned.apk" | head -n 1)
+          echo "Signing $UNSIGNED"
+          TOOLS="${ANDROID_HOME}/build-tools/${BUILD_TOOLS}"
+          mkdir -p out
+          "$TOOLS/zipalign" -f 4 "$UNSIGNED" aligned.apk
+          "$TOOLS/apksigner" sign \
+            --ks android-signing/straycat-rss.keystore \
+            --ks-key-alias straycat \
+            --ks-pass pass:straycatrss \
+            --key-pass pass:straycatrss \
+            --out out/StrayCatRSS.apk aligned.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: out/*
+
+  # Puts both builds on the repo's Releases page under "latest",
+  # as plain downloads (no zip files to unpack).
+  publish:
+    needs: [windows, android]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to "latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+          gh release create latest dist/* --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Latest build" \
+            --notes "Built from commit ${GITHUB_SHA::7}. StrayCatRSS.apk is for Android. StrayCatRSS-Setup.exe installs on Windows; StrayCatRSS-Portable.exe runs without installing (notifications need the installed version)."
