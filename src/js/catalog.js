@@ -51,14 +51,11 @@ export const CATALOG = [
     category: 'Accessibility and blindness',
     feeds: [
       { name: 'NV Access (NVDA) news', url: 'https://www.nvaccess.org/feed/' },
-      { name: 'AppleVis', url: 'https://www.applevis.com/rss.xml', desc: 'Blind and low vision Apple users' },
-      { name: 'Blind Bargains', url: 'https://www.blindbargains.com/rss.xml' },
       { name: 'WebAIM blog', url: 'https://webaim.org/blog/feed' },
       { name: 'Deque blog', url: 'https://www.deque.com/feed/' },
       { name: 'TPGi blog', url: 'https://www.tpgi.com/feed/' },
       { name: 'Can I Play That?', url: 'https://caniplaythat.com/feed/', desc: 'Accessibility in video games' },
       { name: 'Disability Visibility Project', url: 'https://disabilityvisibilityproject.com/feed/' },
-      { name: 'Hadley', url: 'https://hadleyhelps.org/feed', desc: 'Learning for people with vision loss' },
     ],
   },
   {
@@ -67,7 +64,6 @@ export const CATALOG = [
       { name: 'Quanta Magazine', url: 'https://api.quantamagazine.org/feed/' },
       { name: 'ScienceDaily: Top news', url: 'https://www.sciencedaily.com/rss/top.xml' },
       { name: 'Nature', url: 'https://www.nature.com/nature.rss' },
-      { name: 'New Scientist', url: 'https://www.newscientist.com/feed/home/' },
       { name: 'NASA news releases', url: 'https://www.nasa.gov/news-release/feed/' },
       { name: 'Scientific American', url: 'http://rss.sciam.com/ScientificAmerican-Global' },
     ],
@@ -96,8 +92,6 @@ export const CATALOG = [
   {
     category: 'Sports',
     feeds: [
-      { name: 'ESPN: Top headlines', url: 'https://www.espn.com/espn/rss/news' },
-      { name: 'ESPN: MLB', url: 'https://www.espn.com/espn/rss/mlb/news' },
       { name: 'MLB.com news', url: 'https://www.mlb.com/feeds/news/rss.xml' },
       { name: 'Seattle Mariners (MLB.com)', url: 'https://www.mlb.com/mariners/feeds/news/rss.xml' },
       { name: 'FanGraphs', url: 'https://blogs.fangraphs.com/feed/', desc: 'Baseball analysis and stats' },

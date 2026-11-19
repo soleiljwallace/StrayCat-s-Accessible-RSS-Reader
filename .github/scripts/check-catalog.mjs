@@ -9,7 +9,7 @@ let bad = 0;
 await Promise.all(all.map(async (f) => {
   let problem = '';
   try {
-    const res = await fetch(f.url, { headers: { 'user-agent': UA }, redirect: 'follow', signal: AbortSignal.timeout(20000) });
+    const res = await fetch(f.url, { headers: { 'user-agent': UA, accept: 'application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.9, */*;q=0.5' }, redirect: 'follow', signal: AbortSignal.timeout(20000) });
     const body = await res.text();
     if (!res.ok) problem = `HTTP ${res.status}`;
     else if (!/<(rss|feed|rdf:RDF)[\s>]/i.test(body.slice(0, 5000))) problem = 'not a feed';
@@ -19,6 +19,8 @@ await Promise.all(all.map(async (f) => {
   }
   if (problem) {
     bad++;
+    // Some sites turn away cloud servers like GitHub's but work fine from a phone or PC.
+    if (/HTTP (403|419|429)|timed out/.test(problem)) { console.log(`::notice title=Catalog feed blocked GitHub::${f.category} / ${f.name} (${f.url}): ${problem}`); return; }
     console.log(`::warning title=Catalog feed broken::${f.category} / ${f.name} (${f.url}): ${problem}`);
   }
 }));
