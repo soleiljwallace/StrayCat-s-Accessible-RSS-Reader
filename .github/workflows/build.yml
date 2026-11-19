@@ -83,6 +83,11 @@ jobs:
           npx tauri icon app-icon.png
           # Our own Android code (the share sheet) goes next to the generated MainActivity.
           cp android-src/*.kt "$(dirname "$(find src-tauri/gen/android/app/src/main -name MainActivity.kt)")/"
+          # Background checks use Android's WorkManager.
+          printf '\ndependencies {\n    implementation("androidx.work:work-runtime:2.9.1")\n}\n' >> src-tauri/gen/android/app/build.gradle.kts
+          # Allow plain http:// feeds and podcast audio (many podcasts still use it).
+          sed -i 's/manifestPlaceholders\["usesCleartextTraffic"\] = "false"/manifestPlaceholders["usesCleartextTraffic"] = "true"/' src-tauri/gen/android/app/build.gradle.kts
+          grep -n "usesCleartextTraffic\|work-runtime" src-tauri/gen/android/app/build.gradle.kts src-tauri/gen/android/app/src/main/AndroidManifest.xml || true
 
       - name: Build
         run: npx tauri android build --apk --target aarch64

@@ -25,11 +25,19 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import java.io.File
 
 @InvokeArg
 class ShareArgs {
     var title: String = ""
     var url: String = ""
+}
+
+@InvokeArg
+class BackgroundArgs {
+    var enabled: Boolean = false
+    var interval: Long = 60
+    var json: String = ""
 }
 
 @InvokeArg
@@ -59,6 +67,7 @@ class StrayPlugin(private val activity: Activity) : Plugin(activity) {
     private var focusRequest: AudioFocusRequest? = null
     private var hasFocus = false
     private var pausedForTransientLoss = false
+    private var pendingArticle: String? = null
     private val audioManager by lazy { activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     private val notificationManager by lazy { activity.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager }
 
@@ -72,6 +81,11 @@ class StrayPlugin(private val activity: Activity) : Plugin(activity) {
     override fun load(webView: WebView) {
         super.load(webView)
         this.webView = webView
+        // Opened from a new-article notification while the app was closed.
+        activity.intent?.getStringExtra(FeedCheckWorker.EXTRA_ARTICLE)?.let {
+            pendingArticle = it
+            activity.intent.removeExtra(FeedCheckWorker.EXTRA_ARTICLE)
+        }
         activity.runOnUiThread {
             // Let earbud and lock screen buttons start playback (they aren't taps on the page).
             webView.settings.mediaPlaybackRequiresUserGesture = false
@@ -83,6 +97,36 @@ class StrayPlugin(private val activity: Activity) : Plugin(activity) {
                 }
             )
         }
+    }
+
+    // Opened from a new-article notification while the app was already running.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val article = intent.getStringExtra(FeedCheckWorker.EXTRA_ARTICLE) ?: return
+        js("window.__strayOpenArticle && window.__strayOpenArticle($article)")
+    }
+
+    // ---------------------------------------------------------------- background checks
+
+    /** The app sends its feed list here; the background worker reads it. */
+    @Command
+    fun backgroundSync(invoke: Invoke) {
+        val args = invoke.parseArgs(BackgroundArgs::class.java)
+        try {
+            File(activity.filesDir, FeedCheckWorker.STATE_FILE).writeText(args.json)
+            FeedCheckWorker.schedule(activity.applicationContext, args.enabled, args.interval)
+            invoke.resolve()
+        } catch (e: Exception) {
+            invoke.reject("Couldn't set up background checks: ${e.message}")
+        }
+    }
+
+    @Command
+    fun takePendingArticle(invoke: Invoke) {
+        val ret = JSObject()
+        pendingArticle?.let { ret.put("article", it) }
+        pendingArticle = null
+        invoke.resolve(ret)
     }
 
     // ---------------------------------------------------------------- share

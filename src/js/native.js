@@ -6,6 +6,7 @@ const tauri = window.__TAURI__;
 const invoke = tauri?.core?.invoke;
 
 export const isNative = typeof invoke === 'function';
+export const isAndroid = /Android/i.test(navigator.userAgent);
 
 /** Fetch a URL as text. Returns { status, url, contentType, body }. */
 export async function fetchText(url) {
@@ -100,6 +101,27 @@ export async function pickTextFile() {
     input.addEventListener('cancel', () => resolve(null));
     input.click();
   });
+}
+
+/** Android: give the background checker the feed list and schedule it. */
+export async function backgroundSync(info) {
+  if (!isNative || !isAndroid) return false;
+  try { return await invoke('background_sync', { info }); } catch (e) { console.warn('background sync failed', e); return false; }
+}
+
+/** Android: the article whose notification opened the app, as { id, link, title }, or null. */
+export async function takePendingArticle() {
+  if (!isNative || !isAndroid) return null;
+  try {
+    const res = await invoke('take_pending_article');
+    return res?.article ? JSON.parse(res.article) : null;
+  } catch { return null; }
+}
+
+/** Windows: keep running in the notification area, and start with Windows. */
+export async function setDesktopOptions(closeToTray, startWithWindows) {
+  if (!isNative || isAndroid) return false;
+  return invoke('set_desktop_options', { closeToTray, startWithWindows });
 }
 
 export async function appVersion() {

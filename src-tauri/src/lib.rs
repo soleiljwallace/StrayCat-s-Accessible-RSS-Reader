@@ -243,6 +243,120 @@ async fn pick_text_file(app: AppHandle) -> Result<serde_json::Value, String> {
     }
 }
 
+/// Android: hand the feed list to the background checker and (re)schedule it.
+/// `info` is { enabled, interval, json }.
+#[tauri::command]
+async fn background_sync(app: AppHandle, info: serde_json::Value) -> Result<bool, String> {
+    #[cfg(target_os = "android")]
+    {
+        run_android(&app, "backgroundSync", info)?;
+        return Ok(true);
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, info);
+        Ok(false)
+    }
+}
+
+/// Android: the article a notification was tapped for, if the app was opened that way.
+#[tauri::command]
+async fn take_pending_article(app: AppHandle) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        return run_android(&app, "takePendingArticle", serde_json::Value::Null);
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        Ok(serde_json::Value::Null)
+    }
+}
+
+// ---- Windows: notification area icon, keep running when closed, start with Windows.
+
+#[cfg(desktop)]
+struct DesktopOptions {
+    close_to_tray: std::sync::atomic::AtomicBool,
+    told_about_tray: std::sync::atomic::AtomicBool,
+}
+
+#[cfg(desktop)]
+fn show_main(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+#[cfg(desktop)]
+fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+    let open = MenuItem::with_id(app, "open", "Open StrayCat RSS Reader", true, None::<&str>)?;
+    let refresh = MenuItem::with_id(app, "refresh", "Check for new articles", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &refresh, &quit])?;
+
+    let mut tray = TrayIconBuilder::with_id("main")
+        .tooltip("StrayCat RSS Reader")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "open" => show_main(app),
+            "refresh" => {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.eval("window.__strayTrayRefresh && window.__strayTrayRefresh()");
+                }
+            }
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                show_main(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+    tray.build(app)?;
+
+    // Started with Windows: stay in the notification area until opened.
+    if std::env::args().any(|a| a == "--minimized") {
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.hide();
+        }
+    }
+    Ok(())
+}
+
+/// Windows options from the Settings screen. Returns false on Android.
+#[tauri::command]
+async fn set_desktop_options(app: AppHandle, close_to_tray: bool, start_with_windows: bool) -> Result<bool, String> {
+    #[cfg(desktop)]
+    {
+        use std::sync::atomic::Ordering;
+        use tauri_plugin_autostart::ManagerExt;
+        app.state::<DesktopOptions>().close_to_tray.store(close_to_tray, Ordering::Relaxed);
+        let autostart = app.autolaunch();
+        let enabled = autostart.is_enabled().unwrap_or(false);
+        if start_with_windows && !enabled {
+            autostart.enable().map_err(|e| e.to_string())?;
+        } else if !start_with_windows && enabled {
+            autostart.disable().map_err(|e| e.to_string())?;
+        }
+        return Ok(true);
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = (app, close_to_tray, start_with_windows);
+        Ok(false)
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let client = reqwest::Client::builder()
@@ -253,7 +367,47 @@ pub fn run() {
         .build()
         .expect("couldn't set up the HTTP client");
 
-    tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default();
+    #[cfg(desktop)]
+    {
+        // Opening the app again while it runs in the notification area shows the existing window.
+        builder = builder
+            .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
+            .plugin(tauri_plugin_autostart::init(
+                tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+                Some(vec!["--minimized"]),
+            ))
+            .manage(DesktopOptions {
+                close_to_tray: std::sync::atomic::AtomicBool::new(true),
+                told_about_tray: std::sync::atomic::AtomicBool::new(false),
+            })
+            .setup(|app| {
+                setup_tray(app)?;
+                Ok(())
+            })
+            .on_window_event(|window, event| {
+                use std::sync::atomic::Ordering;
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    let app = window.app_handle();
+                    let opts = app.state::<DesktopOptions>();
+                    if opts.close_to_tray.load(Ordering::Relaxed) {
+                        api.prevent_close();
+                        let _ = window.hide();
+                        if !opts.told_about_tray.swap(true, Ordering::Relaxed) {
+                            let _ = app
+                                .notification()
+                                .builder()
+                                .title("Still running")
+                                .body("StrayCat RSS Reader is in the notification area, checking for new articles. To exit, open its icon's menu and choose Quit.")
+                                .show();
+                        }
+                    }
+                }
+            });
+    }
+
+    builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(stray_plugin())
@@ -266,7 +420,10 @@ pub fn run() {
             save_text_file,
             share,
             media_update,
-            pick_text_file
+            pick_text_file,
+            background_sync,
+            take_pending_article,
+            set_desktop_options
         ])
         .run(tauri::generate_context!())
         .expect("error while running the app");

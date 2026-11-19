@@ -26,6 +26,13 @@ The app opens to All articles. You can change that in Settings under "Open the a
 
 Status messages such as "Refreshed. 5 new articles." are announced without moving focus.
 
+## New-article notifications
+
+Turn on "Notify me about new articles" in Settings. Checks follow the schedule you choose there.
+
+- Android: checks run in the background even when the app is closed, at most every 15 minutes, and Android decides the exact timing. Each new article gets its own notification, with the article title read first and the feed name second. Tap one to open that article. They're grouped in the notification shade under a summary such as "5 new articles". Samsung and some other phones put apps to sleep to save battery. If notifications stop, set the app's battery use to "Unrestricted".
+- Windows: closing the window leaves the app running in the notification area, where it keeps checking. Press Windows+B to reach the notification area. Enter on the app's icon opens the window, and the Applications key opens its menu: Open, Check for new articles, and Quit. Settings, under Windows, can turn this off and can start the app with Windows. Opening the app again while it's in the notification area brings back the same window.
+
 ## Full article text
 
 Many feeds only send a summary. When a feed's text is short, the app downloads the web page and keeps only the article itself, using Mozilla's Readability (the same engine as Firefox Reader View). You can change this in Settings, and for each feed under Feed settings:
@@ -80,7 +87,6 @@ The Android signing key in `android-signing/` is deliberately public. It only ex
 ## Planned
 
 - Sync with FreshRSS or Miniflux (for example, running on a NAS, reachable from anywhere through Tailscale).
-- Checking for new articles on Android after the system has closed the app.
 
 ## License
 

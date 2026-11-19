@@ -18,6 +18,8 @@ const DEFAULT_SETTINGS = {
   keepDays: 30,
   speed: 1,
   home: 'all',          // 'feeds', 'all', or a feed id
+  closeToTray: true,     // Windows
+  startWithWindows: false,
 };
 const SHORT_TEXT_WORDS = 150;  // feed text shorter than this counts as "only a summary"
 const FETCH_TIMEOUT_MS = 25000;
@@ -506,11 +508,17 @@ function mergeItems(feed, parsed) {
   const firstFetch = !feed.lastFetched;
   const added = [];
   const changed = [];
+  // Articles seen in the last fetch. Old read articles get cleared out after a
+  // while; this stops them coming back as new while the feed still lists them.
+  const seenBefore = new Set(feed.seen || []);
+  const seenNow = [];
   for (const item of parsed.items) {
     const guid = item.guid || item.link || item.title;
     if (!guid) continue;
+    seenNow.push(guid);
     const id = feed.id + '|' + guid;
     const existing = articles.get(id);
+    if (!existing && seenBefore.has(guid)) continue;
     if (existing) {
       if (existing.title !== item.title || existing.html !== item.html) {
         Object.assign(existing, { title: item.title, html: item.html, link: item.link, enclosure: existing.enclosure || item.enclosure });
@@ -528,6 +536,7 @@ function mergeItems(feed, parsed) {
     added.push(a);
   }
   db.putMany('articles', [...added, ...changed]);
+  feed.seen = seenNow;
   if (!feed.customTitle && parsed.title) feed.title = parsed.title;
   if (parsed.siteUrl) feed.siteUrl = parsed.siteUrl;
   feed.lastFetched = now;
@@ -589,7 +598,9 @@ async function refresh(feedList, { auto = false } = {}) {
   if (state.view === 'feeds') renderFeeds();
   if (state.view === 'list' && !auto) renderList(document.activeElement?.dataset?.articleId);
 
-  if (settings.notify && total && (document.hidden || !document.hasFocus())) {
+  scheduleBackgroundSync();
+  // On Android the background checker posts the notifications (one per article).
+  if (!native.isAndroid && settings.notify && total && (document.hidden || !document.hasFocus())) {
     const top = [...newByFeed.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4)
       .map(([f, n]) => `${feedTitle(f)} (${n})`).join(', ');
     native.notify(`${plural(total, 'new article')}`, top);
@@ -637,6 +648,7 @@ async function subscribe(url, folder, parsed, { stay = false, title = '' } = {})
   const feed = { id: newId(), url, title, folder: folder.trim(), fullText: 'default', customTitle: false, lastFetched: null, lastError: null };
   feeds.set(feed.id, feed);
   if (parsed) { mergeItems(feed, parsed); saveFeed(feed); } else await refreshFeed(feed);
+  scheduleBackgroundSync();
   const count = [...articles.values()].filter((a) => a.feedId === feed.id).length;
   if (stay) {
     announce(feed.lastError
@@ -725,6 +737,7 @@ $('btn-unsubscribe').addEventListener('click', () => {
   db.deleteMany('articles', ids);
   db.deleteMany('feeds', [f.id]);
   feeds.delete(f.id);
+  scheduleBackgroundSync();
   renderFeeds();
   show('feeds');
   announce(`Unsubscribed from ${feedTitle(f)}.`);
@@ -748,6 +761,12 @@ function renderSettings() {
   $('set-sort').value = settings.sort;
   $('set-keep').value = String(settings.keepDays);
   $('set-speed').value = String(settings.speed);
+  $('set-tray').checked = settings.closeToTray;
+  $('set-autostart').checked = settings.startWithWindows;
+  $('windows-settings').hidden = !native.isNative || native.isAndroid;
+  $('notify-help').textContent = native.isAndroid
+    ? 'Checks happen in the background even when the app is closed, using the schedule above (at least every 15 minutes). Each new article gets its own notification; tap one to open that article.'
+    : 'Notifications come while the app is open or running in the notification area.';
 }
 
 const bind = (id, key, read) => $(id).addEventListener('change', (e) => {
@@ -755,6 +774,13 @@ const bind = (id, key, read) => $(id).addEventListener('change', (e) => {
   saveSettings();
 });
 bind('set-interval', 'interval', (t) => Number(t.value));
+$('set-interval').addEventListener('change', () => scheduleBackgroundSync());
+async function applyDesktopOptions() {
+  try { await native.setDesktopOptions(settings.closeToTray, settings.startWithWindows); }
+  catch (err) { announce(`Couldn't change that Windows setting: ${err.message || err}`); }
+}
+$('set-tray').addEventListener('change', (e) => { settings.closeToTray = e.target.checked; saveSettings(); applyDesktopOptions(); });
+$('set-autostart').addEventListener('change', (e) => { settings.startWithWindows = e.target.checked; saveSettings(); applyDesktopOptions(); });
 bind('set-refresh-start', 'refreshOnStart', (t) => t.checked);
 bind('set-fulltext', 'fullText', (t) => t.value);
 bind('set-mark-on-open', 'markOnOpen', (t) => t.checked);
@@ -769,6 +795,7 @@ $('set-notify').addEventListener('change', async (e) => {
   }
   settings.notify = e.target.checked;
   saveSettings();
+  scheduleBackgroundSync();
 });
 
 async function importOpml(text) {
@@ -1072,6 +1099,69 @@ window.__strayBack = () => {
   goBack();
 };
 
+// ---------------------------------------------------------------- background checks and notification taps
+
+// Android checks feeds in the background (FeedCheckWorker.kt). It needs the
+// feed list, and what the app already has so it only reports new articles.
+let syncTimer = null;
+function scheduleBackgroundSync() {
+  if (!native.isAndroid) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    const known = new Map();
+    for (const a of articles.values()) {
+      if (!known.has(a.feedId)) known.set(a.feedId, new Set());
+      const k = known.get(a.feedId);
+      for (const v of [a.guid, a.link, a.title]) if (v) k.add(v);
+    }
+    const list = [...feeds.values()].map((f) => {
+      const k = known.get(f.id) || new Set();
+      for (const g of f.seen || []) if (g) k.add(g);
+      return { id: f.id, url: f.url, title: feedTitle(f), known: [...k] };
+    });
+    const enabled = settings.notify && settings.interval > 0;
+    native.backgroundSync({ enabled, interval: settings.interval, json: JSON.stringify({ enabled, feeds: list }) });
+  }, 1500);
+}
+
+function waitForRefresh() {
+  return new Promise((resolve) => {
+    const check = () => (state.refreshing ? setTimeout(check, 300) : resolve());
+    check();
+  });
+}
+
+function findArticle({ id, link, title }) {
+  if (articles.has(id)) return articles.get(id);
+  const feedId = id.split('|')[0];
+  return [...articles.values()].find((a) => a.feedId === feedId && ((link && a.link === link) || (title && a.title === title)));
+}
+
+// Tapping a new-article notification lands here.
+async function openFromNotification(info) {
+  if (!info?.id) return;
+  await waitForRefresh();
+  let a = findArticle(info);
+  const feed = feeds.get(info.id.split('|')[0]);
+  if (!a && feed) {
+    announce('Loading the article…');
+    await refresh([feed], { auto: true });
+    a = findArticle(info);
+  }
+  if (!a) {
+    announce("Couldn't find that article any more.");
+    if (feed) openList(feed.id);
+    return;
+  }
+  state.feedId = a.feedId;
+  state.sticky.clear();
+  state.sticky.add(a.id);
+  renderList();
+  openArticle(a.id);
+}
+window.__strayOpenArticle = openFromNotification;
+window.__strayTrayRefresh = () => refreshAll();
+
 // ---------------------------------------------------------------- start
 
 async function start() {
@@ -1087,7 +1177,11 @@ async function start() {
   renderFeeds();
   if (feeds.size && settings.home !== 'feeds' && (settings.home === 'all' || feeds.has(settings.home))) openList(settings.home);
   else show('feeds');
-  if (settings.refreshOnStart && feeds.size) refreshAll({ auto: true });
+  native.setDesktopOptions(settings.closeToTray, settings.startWithWindows).catch(() => {});
+  scheduleBackgroundSync();
+  const pending = await native.takePendingArticle();
+  if (pending) openFromNotification(pending);
+  else if (settings.refreshOnStart && feeds.size) refreshAll({ auto: true });
 }
 
 start();
